@@ -1,192 +1,237 @@
 #!/usr/bin/env bash
 #
-# Niri + DankMaterialShell (Shorin-DMS) dotfiles 复原脚本
-# 用法:  ./install.sh
+# Niri + DankMaterialShell —— 自包含部署脚本
+# 不需要 shorin-dms-niri-git，本仓库自带全部配置。
 #
-# 设计要点:
-#   * 文件清单来自 `git ls-files`，仓库没有的文件脚本不会碰
-#   * 每个文件独立软链，覆盖前先备份
-#   * 机器特定值（背光设备名）自动修正为本机实际值
+# 用法:
+#   ./install.sh              完整部署（装包 + 铺配置 + 系统设置）
+#   ./install.sh --no-packages   跳过软件安装，只铺配置
+#   ./install.sh --no-system     跳过系统级改动（locale/i2c 等）
+#   ./install.sh --dry-run       只显示将要做什么，不实际改动
+#
+# 层叠顺序: dotfiles-shorin/ (底座) → dotfiles-user/ (个人改动覆盖)
 #
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC_DIR="$REPO_DIR/dotfiles"
+BASE_DIR="$REPO_DIR/dotfiles-shorin"
+USER_DIR="$REPO_DIR/dotfiles-user"
 BACKUP_DIR="$HOME/.dotfiles-backup/$(date +%F-%H%M%S)"
-DISTRO_PKG="shorin-dms-niri-git"
+
+DO_PACKAGES=1
+DO_SYSTEM=1
+DRY_RUN=0
+for arg in "$@"; do
+    case "$arg" in
+        --no-packages) DO_PACKAGES=0 ;;
+        --no-system)   DO_SYSTEM=0 ;;
+        --dry-run)     DRY_RUN=1 ;;
+        -h|--help)     sed -n '2,16p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        *) echo "未知参数: $arg" >&2; exit 2 ;;
+    esac
+done
 
 c_red=$'\033[31m'; c_grn=$'\033[32m'; c_yel=$'\033[33m'; c_dim=$'\033[2m'; c_rst=$'\033[0m'
 info() { printf '%s==>%s %s\n' "$c_grn" "$c_rst" "$*"; }
 warn() { printf '%s[!]%s %s\n' "$c_yel" "$c_rst" "$*"; }
 die()  { printf '%s[x]%s %s\n' "$c_red" "$c_rst" "$*" >&2; exit 1; }
+run()  { if [ "$DRY_RUN" -eq 1 ]; then printf '%s    [dry-run]%s %s\n' "$c_dim" "$c_rst" "$*"; else "$@"; fi; }
 
-[ "$(id -u)" -eq 0 ] && die "请不要用 root 运行，脚本会写入 \$HOME。"
-[ -d "$SRC_DIR" ] || die "找不到 $SRC_DIR"
+[ "$(id -u)" -eq 0 ] && die "请不要用 root 运行。"
+[ -d "$BASE_DIR" ] || die "缺少底座目录 $BASE_DIR"
+[ -d "$USER_DIR" ] || die "缺少用户层目录 $USER_DIR"
+[ "$DRY_RUN" -eq 1 ] && warn "DRY-RUN 模式：只显示操作，不实际改动"
 
-# ---------------------------------------------------------------- 1. 前置检查
-info "1/6 检查运行环境"
+# ---------------------------------------------------------------- 软件清单
+CORE_PACKAGES=(
+    niri dms-shell quickshell-git niri-sidebar-git
+    matugen kitty fuzzel cava btop fastfetch starship
+    satty slurp grim wf-recorder
+    xdg-desktop-portal-gnome xdg-desktop-portal-gtk
+    adw-gtk-theme breeze-cursors
+    noto-fonts noto-fonts-cjk noto-fonts-emoji
+    fcitx5 fcitx5-gtk fcitx5-qt fcitx5-configtool fcitx5-rime
+    fish starship zoxide eza bat jq
+    ttf-jetbrains-mono-nerd
+    gnome-keyring polkit-gnome
+)
 
-if [ ! -d /sys/firmware/efi ]; then
-    warn "当前不是 UEFI 启动，Niri 仍可用，但请确认引导方式。"
-fi
+# ---------------------------------------------------------------- 1. 环境
+info "1/6 检查环境"
+command -v pacman >/dev/null 2>&1 || warn "未检测到 pacman，本脚本针对 Arch 系发行版。"
 
-if ! command -v git >/dev/null 2>&1; then
-    warn "未检测到 git。若你是用 ZIP 包解压得到的本目录，这没问题。"
-fi
-
-if ! command -v pacman >/dev/null 2>&1; then
-    warn "未检测到 pacman，本脚本针对 Arch 系发行版；其他发行版请手动安装依赖。"
-fi
-
-echo -n "  AUR 助手: "
+AUR=""
 if command -v paru >/dev/null 2>&1; then AUR=paru
-elif command -v yay >/dev/null 2>&1;  then AUR=yay
-else AUR=""; warn "未找到 paru/yay，稍后需要你手动安装 $DISTRO_PKG"; fi
-[ -n "$AUR" ] && echo "$AUR"
+elif command -v yay >/dev/null 2>&1; then AUR=yay
+fi
+[ -n "$AUR" ] && echo "  AUR 助手: $AUR" || warn "未找到 paru/yay，AUR 包需你手动安装。"
 
-# ---------------------------------------------------------------- 2. 组件
-info "2/6 检查 Shorin-DMS 套件"
-
-if pacman -Qq "$DISTRO_PKG" >/dev/null 2>&1; then
-    echo "  $DISTRO_PKG 已安装"
-else
-    warn "未安装 $DISTRO_PKG —— 本仓库只是你个人改动的增量，本体由该包提供。"
-    if [ -n "$AUR" ]; then
-        read -r -p "  现在用 $AUR 安装? [y/N] " a
-        if [[ "$a" =~ ^[Yy]$ ]]; then
-            "$AUR" -S --needed "$DISTRO_PKG"
+# ---------------------------------------------------------------- 2. 装包
+if [ "$DO_PACKAGES" -eq 1 ]; then
+    info "2/6 安装软件"
+    if command -v pacman >/dev/null 2>&1; then
+        missing=()
+        for p in "${CORE_PACKAGES[@]}"; do
+            pacman -Qq "$p" >/dev/null 2>&1 || missing+=("$p")
+        done
+        if [ ${#missing[@]} -eq 0 ]; then
+            echo "  依赖已齐全"
         else
-            die "请先安装 $DISTRO_PKG 后再运行本脚本。"
+            echo "  缺少 ${#missing[@]} 个包: ${missing[*]}"
+            run sudo pacman -S --needed --noconfirm "${missing[@]}" || warn "部分包安装失败，请手动检查。"
         fi
     else
-        die "请先安装 $DISTRO_PKG 后再运行本脚本。"
+        warn "跳过（非 pacman 系统），请自行安装清单中的包。"
     fi
-fi
-
-if command -v shorindms >/dev/null 2>&1; then
-    if [ ! -d "$HOME/.config/niri" ]; then
-        info "  首次运行: 执行 shorindms init 铺开基础配置"
-        warn "  该步骤会覆盖家目录文件（它自己会备份到 ~/.cache），继续前请确认。"
-        read -r -p "  执行 shorindms init? [y/N] " a
-        [[ "$a" =~ ^[Yy]$ ]] && shorindms init || die "已取消。请先 init 再运行本脚本。"
-    else
-        echo "  ~/.config/niri 已存在，跳过 init"
-    fi
-fi
-
-# ---------------------------------------------------------------- 3. 备份
-info "3/6 备份将被覆盖的文件到 $BACKUP_DIR"
-
-MANIFEST="$(mktemp)"
-trap 'rm -f "$MANIFEST"' EXIT
-
-# 文件清单：优先用 git 索引（尊重 .gitignore，且只含已跟踪文件）；
-# 若目录来自 ZIP 下载而没有 .git，则回退到遍历 dotfiles/ 实际内容。
-if git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-    git -C "$REPO_DIR" ls-files dotfiles >"$MANIFEST"
-    echo "  清单来源: git 索引 ($(wc -l <"$MANIFEST") 项)"
 else
-    (cd "$REPO_DIR" && find dotfiles -type f -o -type l) | sort >"$MANIFEST"
-    echo "  清单来源: 目录遍历（无 .git，ZIP 安装模式，$(wc -l <"$MANIFEST") 项）"
+    info "2/6 跳过软件安装 (--no-packages)"
 fi
-[ -s "$MANIFEST" ] || die "文件清单为空，仓库内容可能损坏。"
 
-backup_count=0
+# ---------------------------------------------------------------- 3. 原始包处置
+info "3/6 检查 shorin-dms-niri-git"
+if pacman -Qq shorin-dms-niri-git >/dev/null 2>&1; then
+    warn "检测到 shorin-dms-niri-git。它的配置从此不再生效（本仓库已接管）。"
+    echo "  以下 shorin 专属工具不依赖它，建议保留:"
+    echo "    shorin-contrib-git          ~/.local/bin 里的 sysup/clean/mirror-update 等"
+    echo "    shorin-screenrec-menu-git   niri 的 Mod+F3 录屏菜单"
+    echo "  确认配置已生效后，可手动移除主包:"
+    echo "    sudo pacman -Rns shorin-dms-niri-git"
+    echo "  注意: 移除前先确认 ~/.local/bin 里的软链仍可用。"
+else
+    echo "  未安装（已经是自包含状态）"
+fi
+
+# ---------------------------------------------------------------- 4. 系统级
+if [ "$DO_SYSTEM" -eq 1 ]; then
+    info "4/6 系统级设置"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "    [dry-run] locale.gen / i2c 组 / i2c-dev 模块"
+    else
+        # locale
+        need_gen=0
+        locale -a 2>/dev/null | grep -qi "en_US.utf8" || { sudo sed -i 's/^#\s*en_US\.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen; need_gen=1; }
+        locale -a 2>/dev/null | grep -qi "zh_CN.utf8" || { sudo sed -i 's/^#\s*zh_CN\.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen; need_gen=1; }
+        [ "$need_gen" -eq 1 ] && { sudo locale-gen >/dev/null 2>&1 && echo "  已生成 locales"; } || echo "  locales 已就绪"
+
+        # i2c（外接显示器亮度控制需要）
+        if ! id -nG "$USER" | tr ' ' '\n' | grep -qx i2c; then
+            sudo gpasswd -a "$USER" i2c >/dev/null 2>&1 && echo "  已将 $USER 加入 i2c 组（需重新登录生效）"
+        else
+            echo "  已在 i2c 组"
+        fi
+        if ! grep -q "i2c-dev" /etc/modules-load.d/i2c-dev.conf 2>/dev/null; then
+            echo "i2c-dev" | sudo tee /etc/modules-load.d/i2c-dev.conf >/dev/null
+            echo "  已添加 i2c-dev 模块"
+        fi
+
+        # 电源管理：TLP 与 power-profiles-daemon 互斥，绝不盲目开启
+        if pacman -Qq tlp >/dev/null 2>&1; then
+            warn "检测到 TLP，跳过 power-profiles-daemon（两者互斥，同时启用会导致电源策略打架）"
+            systemctl is-enabled power-profiles-daemon >/dev/null 2>&1 && \
+                warn "  注意: power-profiles-daemon 当前是 enabled，建议 sudo systemctl mask power-profiles-daemon"
+        else
+            sudo systemctl enable --now power-profiles-daemon.service >/dev/null 2>&1 && \
+                echo "  已启用 power-profiles-daemon" || warn "  power-profiles-daemon 启用失败（可能未安装）"
+        fi
+    fi
+else
+    info "4/6 跳过系统级设置 (--no-system)"
+fi
+
+# ---------------------------------------------------------------- 5. 铺配置
+info "5/6 部署配置"
+MANIFEST="$(mktemp)"; UNIQUE_FILE="$(mktemp)"
+trap 'rm -f "$MANIFEST" "$UNIQUE_FILE"' EXIT
+
+if git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "$REPO_DIR" ls-files dotfiles-shorin dotfiles-user >"$MANIFEST"
+    echo "  清单来源: git 索引"
+else
+    (cd "$REPO_DIR" && find dotfiles-shorin dotfiles-user -type f | sort) >"$MANIFEST"
+    echo "  清单来源: 目录遍历（ZIP 模式）"
+fi
+[ -s "$MANIFEST" ] || die "文件清单为空。"
+
+backup_count=0; write_count=0
+
 while IFS= read -r tracked; do
-    rel="${tracked#dotfiles/}"
+    case "$tracked" in
+        dotfiles-shorin/*) rel="${tracked#dotfiles-shorin/}" ;;
+        dotfiles-user/*)   rel="${tracked#dotfiles-user/}" ;;
+        *) continue ;;
+    esac
+    src="$REPO_DIR/$tracked"
     dst="$HOME/$rel"
-    if [ -e "$dst" ] || [ -L "$dst" ]; then
+    [ -e "$src" ] || continue
+
+    # 备份已存在的实体文件（软链不备份，直接替换）
+    if { [ -e "$dst" ] || [ -L "$dst" ]; } && [ ! -L "$dst" ]; then
         mkdir -p "$BACKUP_DIR/$(dirname "$rel")"
         cp -a "$dst" "$BACKUP_DIR/$rel"
         backup_count=$((backup_count + 1))
     fi
-done <"$MANIFEST"
-echo "  已备份 $backup_count 个现存文件"
 
-# ---------------------------------------------------------------- 4. 软链
-info "4/6 链接配置文件"
-
-link_count=0
-while IFS= read -r tracked; do
-    rel="${tracked#dotfiles/}"
-    src="$SRC_DIR/$rel"
-    dst="$HOME/$rel"
-
-    [ -e "$src" ] || { warn "源文件缺失，跳过: $rel"; continue; }
-
-    mkdir -p "$(dirname "$dst")"
-
-    if [ -L "$dst" ]; then
-        rm -f "$dst"
-    elif [ -e "$dst" ]; then
-        if cmp -s "$src" "$dst"; then
-            rm -f "$dst"                     # 内容相同，直接换成软链
-        else
-            rm -f "$dst"                      # 已在上一步备份
-        fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        printf '%s\n' "$rel" >>"$UNIQUE_FILE"
+        write_count=$((write_count + 1)); continue
     fi
 
-    ln -s "$src" "$dst"
-    link_count=$((link_count + 1))
+    mkdir -p "$(dirname "$dst")"
+    rm -f "$dst"
+    cp -a "$src" "$dst"
+
+    # 底座里的 /home/shorin 占位符换成真实家目录
+    if [ "${tracked#dotfiles-shorin/}" != "$tracked" ] && grep -q "/home/shorin" "$dst" 2>/dev/null; then
+        sed -i "s|/home/shorin|$HOME|g" "$dst"
+    fi
+    printf '%s\n' "$rel" >>"$UNIQUE_FILE"
+    write_count=$((write_count + 1))
 done <"$MANIFEST"
 
-echo "  已链接 $link_count 个文件"
+final_count=$(sort -u "$UNIQUE_FILE" | wc -l)
+echo "  部署 $final_count 个配置（写入 $write_count 次，用户层覆盖底座层 $((write_count - final_count)) 处）"
+[ "$DRY_RUN" -eq 1 ] || { [ "$backup_count" -gt 0 ] && echo "  备份 $backup_count 个原有文件到: $BACKUP_DIR"; }
 
-# ---------------------------------------------------------------- 5. 机器特定修正
-info "5/6 修正机器特定配置"
+# ---------------------------------------------------------------- 6. 收尾
+info "6/6 收尾"
+if [ "$DRY_RUN" -eq 0 ]; then
+    # 脚本可执行位
+    for d in "$HOME/.config/niri/scripts" "$HOME/.local/bin"; do
+        [ -d "$d" ] && find "$d" -maxdepth 1 -type f -exec chmod +x {} \; 2>/dev/null || true
+    done
 
-SETTINGS="$HOME/.config/DankMaterialShell/settings.json"
-if [ -f "$SETTINGS" ] && command -v python3 >/dev/null 2>&1; then
-    # 把 settings.json 里留空的背光设备替换为本机真实设备
-    real_bl="$(basename "$(ls -d /sys/class/backlight/* 2>/dev/null | head -1)" 2>/dev/null || true)"
-    if [ -n "$real_bl" ]; then
-        python3 - "$SETTINGS" "$real_bl" <<'PY'
+    # 机器特定：背光设备
+    SETTINGS="$HOME/.config/DankMaterialShell/settings.json"
+    if [ -f "$SETTINGS" ] && command -v python3 >/dev/null 2>&1; then
+        real_bl="$(basename "$(ls -d /sys/class/backlight/* 2>/dev/null | head -1)" 2>/dev/null || true)"
+        [ -n "$real_bl" ] && python3 - "$SETTINGS" "$real_bl" <<'PY'
 import json, sys, pathlib
 p, dev = pathlib.Path(sys.argv[1]), sys.argv[2]
-try:
-    d = json.loads(p.read_text())
-except Exception as e:
-    print(f"  settings.json 解析失败，跳过: {e}"); raise SystemExit(0)
-changed = 0
+try: d = json.loads(p.read_text())
+except Exception: raise SystemExit(0)
 for w in d.get("controlCenterWidgets", []):
     if w.get("id") == "brightnessSlider" and not w.get("deviceName"):
         w["deviceName"] = f"backlight:{dev}"
-        changed += 1
 p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
-print(f"  背光设备设为 backlight:{dev} ({changed} 处)")
+print(f"  背光设备设为 backlight:{dev}")
 PY
-    else
-        warn "  未找到 /sys/class/backlight/*，亮度滑块需在 DMS 设置里手动选一次。"
     fi
-else
-    warn "  跳过（缺 python3 或配置文件）"
 fi
-
-# 可执行位（git 可能未保留，显式补一次）
-for f in "$HOME"/.config/niri/scripts/*; do
-    [ -f "$f" ] && chmod +x "$f" 2>/dev/null || true
-done
-echo "  已恢复脚本可执行权限"
-
-# ---------------------------------------------------------------- 6. 收尾
-info "6/6 完成"
 
 cat <<EOF
 
-$(printf '%s' "$c_grn")配置文件已就位。$(printf '%s' "$c_rst")
+$(printf '%s' "$c_grn")部署完成。$(printf '%s' "$c_rst")
 
-还需要手动做三件事（DMS 的壁纸与配色是按机器生成的，无法随仓库携带）:
+首次登录后还需手动做三件事（壁纸与配色按机器生成，无法预置）:
+  1. 注销后重新登录（i2c 组变更也需重登生效）
+  2. DMS 设置 → 个性化 → 壁纸，选一张壁纸
+  3. DMS 设置 → 主题与配色 → 选 "auto" 并挑配色
+     这步会生成 ~/.config/niri/dms/colors.kdl 与 wpblur.kdl
 
-  1. 注销后重新登录（或重启），让 Niri 读取新配置。
-  2. 打开 DMS 设置 → 个性化 → 壁纸，选一张壁纸。
-     这会同时生成 overview 模糊壁纸层。
-  3. DMS 设置 → 主题与配色 → 选 "auto" 再挑一个配色方案。
-     这一步会重新生成 ~/.config/niri/dms/colors.kdl 与 wpblur.kdl。
+可选:
+  * Firefox 配色: 扩展页装 pywalfox → Fetch
+  * VSCode 配色: 装 DMS 主题扩展，主题选 DankShell
+  * 隐藏冗余 .desktop 图标: 见 README 的"可选系统微调"
 
-可选项:
-  * Firefox 配色: 打开 Firefox → pywalfox 扩展 → Fetch。
-  * VSCode 配色: 安装 DMS 主题扩展，主题选 DankShell。
-
-备份位置: $BACKUP_DIR
-回滚办法: 把该目录内容按相同路径拷回 \$HOME 即可。
+回滚: 把 $BACKUP_DIR 内容按相同路径拷回 \$HOME
 EOF

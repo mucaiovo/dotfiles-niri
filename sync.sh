@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
 #
-# sync.sh —— 把本机当前配置同步回仓库
+# sync.sh —— 把本机当前配置同步回仓库的【用户层】
 #
 # 用法:
 #   ./sync.sh           显示将要发生的更改，不实际写入
 #   ./sync.sh --apply   实际同步，然后由你手动 commit
 #
-# 说明:
-#   本脚本刻意使用「拷贝」而非「软链」。因为 shorindms update 落盘时可能
-#   打断软链，导致你的真实配置被替换成断链。拷贝同步没有这个风险。
+# 两层结构:
+#   dotfiles-shorin/  底座，从 shorin 包 vendoring 而来，本脚本【只读不写】
+#   dotfiles-user/    你的个人改动，本脚本只同步这一层
 #
-# 特例:
-#   DankMaterialShell/settings.json 里的背光设备名是本机专属值，
-#   同步时会自动清空，交给 install.sh 在新机器上探测回填。
+# 说明:
+#   本脚本刻意使用「拷贝」而非「软链」，避免上游工具落盘时打断软链。
 #
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC_DIR="$REPO_DIR/dotfiles"
+USER_DIR="$REPO_DIR/dotfiles-user"
 APPLY=0
 [ "${1:-}" = "--apply" ] && APPLY=1
 
@@ -27,16 +26,17 @@ if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
     printf '%s[x]%s 这不是一个 git 仓库（可能来自 ZIP 下载）。\n' "$c_yel" "$c_rst" >&2
     echo "    sync.sh 用于把本机改动回传到仓库，需要 git 历史。" >&2
     echo "    若只想应用配置，请改用: ./install.sh" >&2
-    echo "    若想恢复 git: git init && git remote add origin <仓库地址>" >&2
     exit 1
 fi
 
-# 以仓库跟踪的文件为准，新文件需先 git add 才会被纳入
+[ -d "$USER_DIR" ] || { echo "缺少 $USER_DIR" >&2; exit 1; }
+
+# 只以用户层已跟踪的文件为准
 changed=0
 while IFS= read -r tracked; do
-    rel="${tracked#dotfiles/}"
+    rel="${tracked#dotfiles-user/}"
     src="$HOME/$rel"
-    dst="$SRC_DIR/$rel"
+    dst="$USER_DIR/$rel"
 
     if [ ! -e "$src" ]; then
         printf '%s[缺失]%s 本机没有: %s\n' "$c_yel" "$c_rst" "$rel"
@@ -44,7 +44,7 @@ while IFS= read -r tracked; do
     fi
 
     if [ -L "$src" ]; then
-        printf '%s[软链]%s 跳过（本机该文件是软链，同步会自指）: %s\n' "$c_yel" "$c_rst" "$rel"
+        printf '%s[软链]%s 跳过（本机该文件是软链）: %s\n' "$c_yel" "$c_rst" "$rel"
         continue
     fi
 
@@ -59,8 +59,8 @@ while IFS= read -r tracked; do
         continue
     fi
 
-    # settings.json 里的背光设备名是本机专属，仓库恒为空。
-    # 这里按「归一化后」比较，避免每次都误报有变更。
+    # settings.json 的背光设备名是本机专属，仓库恒为空，
+    # 按归一化内容比较，避免每次误报。
     if [ "$rel" = ".config/DankMaterialShell/settings.json" ] && command -v python3 >/dev/null 2>&1; then
         if python3 - "$src" "$dst" <<'PY'
 import json, sys, pathlib
@@ -85,9 +85,6 @@ PY
         printf '%s' "$c_rst"
 
         if [ "$rel" = ".config/DankMaterialShell/settings.json" ]; then
-            # 背光设备名是本机专属，仓库里必须留空，由 install.sh 在
-            # 新机器上探测回填。直接拷贝会把本机设备名固化进仓库，
-            # 导致别的机器上亮度滑块失效。
             python3 - "$src" "$dst" <<'PY'
 import json, sys, pathlib
 s, d = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -103,21 +100,26 @@ PY
         fi
     fi
     changed=$((changed + 1))
-done < <(git -C "$REPO_DIR" ls-files dotfiles)
+done < <(git -C "$REPO_DIR" ls-files dotfiles-user)
 
 echo
 if [ "$changed" -eq 0 ]; then
-    echo "无变更，仓库已是最新。"
+    echo "无变更，用户层已是最新。"
     exit 0
 fi
 
 if [ "$APPLY" -eq 0 ]; then
     echo "共 $changed 个文件有差异。加 --apply 实际同步。"
 else
-    echo "已同步 $changed 个文件。"
-    echo
-    echo "接下来手动提交（脚本不替你 commit，方便你先审阅）:"
-    echo "  cd $REPO_DIR"
-    echo "  git diff"
-    echo "  git add -A && git commit -m '更新配置' && git push"
+    cat <<EOF
+已同步 $changed 个文件到 dotfiles-user/。
+
+接下来手动提交:
+  cd $REPO_DIR
+  git diff
+  git add -A && git commit -m '更新配置' && git push
+
+提示: 若你改动的是底座文件（dotfiles-shorin/），sync.sh 不会同步它。
+      把该文件复制到 dotfiles-user/ 同路径即可变成你的个人覆盖层。
+EOF
 fi

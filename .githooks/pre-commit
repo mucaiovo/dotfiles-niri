@@ -12,18 +12,33 @@ PATTERNS=(
     '(?i)(token|secret|passwd|password|api[_-]?key)[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9_\-]{12,}'
 )
 
+# 已知误报：匹配到 PATTERNS 但属于标准配置键，值不是凭据。
+# 格式为 grep -E 正则，匹配到的行会被跳过。
+ALLOWLIST=(
+    # xdg-desktop-portal 的 Secret 门户，值为后端名（gnome-keyring / kwallet 等）
+    'org\.freedesktop\.impl\.portal\.Secret[[:space:]]*='
+    # 输入法/终端里关于密码输入的布尔开关
+    '(AllowInputMethod|ShowPreedit)ForPassword'
+    '^[[:space:]]*#?[[:space:]]*password-character[[:space:]]*='
+)
+
 fail=0
 # 仅扫描本次暂存的文本文件
 while IFS= read -r -d '' f; do
     # 跳过二进制
     if ! grep -Iq . "$f" 2>/dev/null; then continue; fi
     for pat in "${PATTERNS[@]}"; do
-        if hits=$(grep -nP "$pat" "$f" 2>/dev/null); then
-            if [ -n "$hits" ]; then
-                printf '\033[31m[pre-commit] 疑似敏感信息: %s\033[0m\n%s\n' "$f" "$hits" >&2
-                fail=1
-            fi
-        fi
+        hits=$(grep -nP "$pat" "$f" 2>/dev/null) || continue
+        [ -n "$hits" ] || continue
+
+        # 过滤白名单中的已知误报行
+        for allow in "${ALLOWLIST[@]}"; do
+            hits=$(printf '%s\n' "$hits" | grep -vP "$allow")
+        done
+        [ -n "$hits" ] || continue
+
+        printf '\033[31m[pre-commit] 疑似敏感信息: %s\033[0m\n%s\n' "$f" "$hits" >&2
+        fail=1
     done
 done < <(git diff --cached --name-only --diff-filter=ACM -z)
 

@@ -1,8 +1,19 @@
 # dotfiles-niri
 
-Niri + DankMaterialShell（Shorin-DMS 套装）个人配置。
+Niri + DankMaterialShell (DMS) 桌面配置，**自包含**，不依赖 `shorin-dms-niri-git`。
 
-这套配置**不是从零搭建的**，而是在 [shorin-dms-niri](https://shorin.xyz/wiki) 提供的桌面上做的个人改动。因此本仓库只保存**增量**：只放我改过的文件，没改过的由 `shorindms init` 提供。
+## 这是什么
+
+原本这套桌面由 AUR 包 `shorin-dms-niri-git` 提供：它自带一套配置模板（`/usr/share/shorin-dms-niri/`），通过 `shorindms init` 铺到 `$HOME`。本仓库把那套模板 **vendoring** 进来，接管部署，从此不再需要那个包。
+
+分成两层，职责清晰：
+
+| 层 | 内容 | 来源 |
+|---|---|---|
+| `dotfiles-shorin/` | 91 个文件，桌面底座（niri 结构、matugen 模板、fcitx5、fish、主题） | 从 shorin 包 vendoring |
+| `dotfiles-user/` | 24 个文件，我的个人改动 | 我自己改的 |
+
+部署时**底座先铺，个人层覆盖**。所以 `dotfiles-shorin/` 里的文件你可以随时用上游版本替换，个人改动不会被冲掉。
 
 ## 在另一台 Arch 机器上还原
 
@@ -12,123 +23,121 @@ Niri + DankMaterialShell（Shorin-DMS 套装）个人配置。
 # 有 SSH 密钥时（推荐）
 git clone git@github.com:mucaiovo/dotfiles-niri.git ~/dotfiles-niri
 
-# 直连 GitHub 不通时，走镜像
+# 直连 GitHub 不通时
 git clone https://ghproxy.net/https://github.com/mucaiovo/dotfiles-niri.git ~/dotfiles-niri
 
-# 或者直接在网页上 Download ZIP，解压到 ~/dotfiles-niri
+# 或网页 Download ZIP 后解压到 ~/dotfiles-niri
 ```
 
-ZIP 方式没有 `.git`，`install.sh` 会自动回退到遍历目录（已适配），但 `sync.sh` 需要 git，仅本机回传时用到。
-
-### 2. 安装依赖组件
-
-```bash
-paru -S --needed shorin-dms-niri-git
-shorindms init          # 首次运行，铺开包自带的基础配置
-```
-
-`install.sh` 会检查这一步，未完成会提示并中止。
-
-### 3. 应用个人配置
+### 2. 一键部署
 
 ```bash
 cd ~/dotfiles-niri
 ./install.sh
 ```
 
-`install.sh` 会：
+脚本会：
 
-1. 检查 UEFI、pacman、AUR 助手
-2. 确认 `shorin-dms-niri-git` 已安装且 `~/.config/niri` 存在，否则提示先 init
-3. 把将被覆盖的文件备份到 `~/.dotfiles-backup/<时间戳>/`
-4. 按文件清单把仓库内文件**软链**到 `$HOME` 对应位置
-5. 把 `settings.json` 里留空的亮度设备修正为**本机**真实背光设备
-6. 恢复脚本可执行权限
+1. 检查环境与 AUR 助手
+2. 用 `pacman` 装上核心依赖（niri、dms-shell、quickshell、matugen、kitty、fcitx5 等）
+3. 检查 `shorin-dms-niri-git` 是否还在，并提示如何处置
+4. 系统级设置：locale、`i2c` 组、`i2c-dev` 模块、电源管理
+5. 铺 126 个文件（底座 → 个人层覆盖），自动把底座里的 `/home/shorin` 占位符换成真实家目录
+6. 探测本机背光设备并写入 `settings.json`
 
-### 4. 首次登录后必做
+常用参数：
 
-DMS 的壁纸与配色是按机器生成的，无法随仓库携带：
+```bash
+./install.sh --dry-run        # 先看会做什么，不实际改动
+./install.sh --no-packages    # 不装软件，只铺配置
+./install.sh --no-system      # 不动 locale / i2c 等系统设置
+```
 
-1. 注销重登，让 Niri 读取新配置
+### 3. 首次登录后必做
+
+壁纸和配色是按机器生成的，无法预置：
+
+1. 注销重登（`i2c` 组变更也需重登生效）
 2. DMS 设置 → 个性化 → 壁纸，选一张壁纸
-3. DMS 设置 → 主题与配色 → 选 `auto` 并挑配色，这一步会重新生成 `dms/colors.kdl` 和 `dms/wpblur.kdl`
+3. DMS 设置 → 主题与配色 → 选 `auto` 并挑配色
+   这步会生成 `~/.config/niri/dms/colors.kdl` 与 `wpblur.kdl`
 
 可选：Firefox 装 pywalfox 扩展 → Fetch；VSCode 装 DMS 主题扩展选 DankShell。
 
 ### 回滚
 
 ```bash
-ls ~/.dotfiles-backup/          # 找到对应时间戳
+ls ~/.dotfiles-backup/       # 找时间戳
 # 把该目录内容按相同路径拷回 $HOME 即可
 ```
 
 ## 日常维护
 
-改完配置后把改动同步回仓库：
+改完配置后同步回个人层：
 
 ```bash
 cd ~/dotfiles-niri
-./sync.sh            # 只看差异，不写入
+./sync.sh            # 只看差异
 ./sync.sh --apply    # 实际同步
-git diff             # 审阅
 git add -A && git commit -m "更新配置" && git push
 ```
 
-脚本刻意使用**拷贝**而非软链。日常用的机器上**不要**把 `~/.config` 建成软链指向仓库：`shorindms update` 落盘时可能打断软链，反而把你的真实配置变成断链。软链只在 `install.sh` 还原新机器时使用。
+`sync.sh` **只写 `dotfiles-user/`**，不碰底座层。想覆盖某个底座文件，把它复制到 `dotfiles-user/` 的同路径即可。
 
-`DankMaterialShell/settings.json` 里的背光设备名是本机专属值，`sync.sh` 同步时会自动清空它，避免把本机设备名固化进仓库。
+## 关于摆脱 shorin 包
 
-## 为什么只有这些文件
+`shorin-dms-niri-git` 原本做四件事，现在前三件都由本仓库接管：
 
-`shorin-dms-niri-git` 自带整套 dotfiles。我用逐文件 diff 找出了真正被我改动的部分：
+| 原职责 | 现状 |
+|---|---|
+| 装 80 个软件 | `install.sh` 的内置清单接管 |
+| 部署 92 个配置模板 | vendoring 到 `dotfiles-shorin/` |
+| 系统级改动（locale/i2c/firefox policies） | `install.sh` 第 3 步接管 |
+| 文档 | 见下方参考资料 |
 
-| 类别 | 处理 | 原因 |
-|---|---|---|
-| 我改过的 | **入库** | `niri/config.kdl`、`dms/binds.kdl`、`dms/layout.kdl`、`dms/alttab.kdl`、`dms/cursor.kdl`、`scripts/screenshot-sound.sh` |
-| 包自带且未改 | 不入库 | `blur.kdl`、`animations.kdl`、`kitty.conf`、`cava/config` 等，`shorindms init` 即可还原 |
-| 自动生成 | **明文说明，不还原** | `dms/colors.kdl`、`dms/wpblur.kdl` 由 matugen/DMS 生成，带 `DO NOT EDIT` 标记 |
-| 个人资产 | 不入库 | 121 张壁纸（727 MB）、`uv`/`btop` 二进制 |
+**可以安全移除主包**，但下面这些 shorin 专属包建议保留，它们不依赖主包：
 
-`dotfiles/.config/niri/dms/colors.kdl` 保留了一份**快照**，仅作首次登录前的兜底，DMS 一启动就会覆盖它。
+- `shorin-contrib-git` —— `~/.local/bin` 里的 `sysup`、`clean`、`mirror-update` 等十几个命令都软链到它
+- `shorin-screenrec-menu-git` —— niri 的 `Mod+F3` 录屏菜单
 
-## 版本管理须知
-
-- `shorindms update` 会同步上游新配置。本仓库中的文件若同时处于 `shorindms` 的**保护列表**，不会被覆盖：
-  ```bash
-  shorindms protected-list          # 查看当前受保护路径
-  shorindms protect .config/niri/dms/binds.kdl
-  ```
-- 由于文件是软链，`shorindms update` 若用「重命名再写入」的方式落盘，**可能打断软链**。更新后建议执行：
-  ```bash
-  cd ~/dotfiles-niri && ./install.sh
-  ```
-  重新建立链接即可。
-
-## 安全
-
-仓库带一个 `pre-commit` 钩子，会拦截疑似密钥的提交。启用方式：
+移除方式（确认新配置生效后再做）：
 
 ```bash
-git config core.hooksPath .githooks
+sudo pacman -Rns shorin-dms-niri-git
 ```
 
-`.gitignore` 已排除 `~/.ssh`、`~/.gnupg`、`*.pem`、`*.key`，以及个人机器人运维脚本（含明文 token）。
+注意：`shorindms protect` 那套保护机制随之失效，但你已不需要它——改动现在直接进 git。
+
+### 未纳入的文件
+
+- `.local/bin/bad-apple` —— 17 MB 的 Bad Apple 动画，占原包体积的 99%，无实际用途，已排除
 
 ## 键位
 
-全部键位见 `dotfiles/.config/niri/dms/binds.kdl`。常用：
+全部键位见 `dotfiles-user/.config/niri/dms/binds.kdl`。常用：
 
 | 按键 | 功能 |
 |---|---|
 | `Super+T` | 终端 |
-| `Super+Z` | 开始菜单 / 程序菜单 |
+| `Super+Z` | 开始菜单 |
 | `Super+E` | 文件管理器 |
 | `Super+Q` | 关闭窗口 |
 | `Super+G` / `Super+O` | overview |
 | `Super+H/L` | 左右切换聚焦 |
 | `Super+U/I` | 上下切换工作区 |
 | `Super+Alt+A` | 截图 |
+| `Super+F3` | 录屏菜单 |
 | `Super+Shift+/` | 按键教程 |
+
+## 安全
+
+仓库带 `pre-commit` 钩子，拦截疑似密钥。启用：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.gitignore` 已排除 `~/.ssh`、`~/.gnupg`、`*.pem`、`*.key`，以及个人机器人运维脚本（含明文 token）。
 
 ## 参考
 

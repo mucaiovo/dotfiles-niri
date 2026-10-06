@@ -4,9 +4,12 @@
 *.bak
 *.bak.*
 *.backup*
-dotfiles/.config/niri/*.backup*
-dotfiles/.config/niri/config.kdl.bak-*
-dotfiles/.config/niri/nvim.old.*
+config.kdl.bak-*
+nvim.old.*
+
+# 注意: .config/niri/dms/colors.kdl 与 wpblur.kdl 由 DMS 生成，
+# 但 config.kdl 无条件 include 它们，缺失会导致 niri 无法启动。
+# 因此仓库保留一份快照作为兜底，不要把它们加进 .gitignore。
 
 # 密钥与凭据
 **/id_rsa*
@@ -21,16 +24,17 @@ dotfiles/.config/niri/nvim.old.*
 **/.gnupg/**
 **/.pki/**
 
-# 含 token 的个人脚本（本地排除，不要提交）
-dotfiles/.local/bin/bot
-dotfiles/.local/bin/botrm
-dotfiles/.local/bin/botw
+# 含 token 的个人运维脚本
+dotfiles-user/.local/bin/bot
+dotfiles-user/.local/bin/botrm
+dotfiles-user/.local/bin/botw
 
-# 二进制与体积大的资产（按需另存，不要塞进 git）
-dotfiles/.local/bin/uv
-dotfiles/.local/bin/uvx
-dotfiles/.local/bin/btop
-dotfiles/Pictures/**
+# 二进制与大体积资产
+dotfiles-shorin/.local/bin/bad-apple
+dotfiles-user/.local/bin/uv
+dotfiles-user/.local/bin/uvx
+dotfiles-user/.local/bin/btop
+dotfiles-user/Pictures/**
 *.pkg.tar.zst
 *.AppImage
 
