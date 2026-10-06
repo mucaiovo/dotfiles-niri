@@ -23,6 +23,14 @@ APPLY=0
 
 c_grn=$'\033[32m'; c_yel=$'\033[33m'; c_dim=$'\033[2m'; c_rst=$'\033[0m'
 
+if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    printf '%s[x]%s 这不是一个 git 仓库（可能来自 ZIP 下载）。\n' "$c_yel" "$c_rst" >&2
+    echo "    sync.sh 用于把本机改动回传到仓库，需要 git 历史。" >&2
+    echo "    若只想应用配置，请改用: ./install.sh" >&2
+    echo "    若想恢复 git: git init && git remote add origin <仓库地址>" >&2
+    exit 1
+fi
+
 # 以仓库跟踪的文件为准，新文件需先 git add 才会被纳入
 changed=0
 while IFS= read -r tracked; do

@@ -6,26 +6,61 @@ Niri + DankMaterialShell（Shorin-DMS 套装）个人配置。
 
 ## 在另一台 Arch 机器上还原
 
+### 1. 取回仓库
+
 ```bash
-git clone <本仓库地址> ~/dotfiles-niri
+# 有 SSH 密钥时（推荐）
+git clone git@github.com:mucaiovo/dotfiles-niri.git ~/dotfiles-niri
+
+# 直连 GitHub 不通时，走镜像
+git clone https://ghproxy.net/https://github.com/mucaiovo/dotfiles-niri.git ~/dotfiles-niri
+
+# 或者直接在网页上 Download ZIP，解压到 ~/dotfiles-niri
+```
+
+ZIP 方式没有 `.git`，`install.sh` 会自动回退到遍历目录（已适配），但 `sync.sh` 需要 git，仅本机回传时用到。
+
+### 2. 安装依赖组件
+
+```bash
+paru -S --needed shorin-dms-niri-git
+shorindms init          # 首次运行，铺开包自带的基础配置
+```
+
+`install.sh` 会检查这一步，未完成会提示并中止。
+
+### 3. 应用个人配置
+
+```bash
 cd ~/dotfiles-niri
 ./install.sh
 ```
 
 `install.sh` 会：
 
-1. 检查 UEFI、git、pacman、AUR 助手
-2. 确认 `shorin-dms-niri-git` 已安装；未安装则提示安装，必要时自动执行 `shorindms init` 铺开基础配置
-3. 按 `git ls-files` 逐文件备份到 `~/.dotfiles-backup/<时间戳>/`
-4. 把仓库内文件**软链**到 `$HOME` 对应位置
+1. 检查 UEFI、pacman、AUR 助手
+2. 确认 `shorin-dms-niri-git` 已安装且 `~/.config/niri` 存在，否则提示先 init
+3. 把将被覆盖的文件备份到 `~/.dotfiles-backup/<时间戳>/`
+4. 按文件清单把仓库内文件**软链**到 `$HOME` 对应位置
 5. 把 `settings.json` 里留空的亮度设备修正为**本机**真实背光设备
 6. 恢复脚本可执行权限
 
-还原后仍需手动完成三件事（壁纸与配色是按机器生成的，无法随仓库携带）：
+### 4. 首次登录后必做
+
+DMS 的壁纸与配色是按机器生成的，无法随仓库携带：
 
 1. 注销重登，让 Niri 读取新配置
 2. DMS 设置 → 个性化 → 壁纸，选一张壁纸
 3. DMS 设置 → 主题与配色 → 选 `auto` 并挑配色，这一步会重新生成 `dms/colors.kdl` 和 `dms/wpblur.kdl`
+
+可选：Firefox 装 pywalfox 扩展 → Fetch；VSCode 装 DMS 主题扩展选 DankShell。
+
+### 回滚
+
+```bash
+ls ~/.dotfiles-backup/          # 找到对应时间戳
+# 把该目录内容按相同路径拷回 $HOME 即可
+```
 
 ## 日常维护
 

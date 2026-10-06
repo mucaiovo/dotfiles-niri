@@ -31,7 +31,7 @@ if [ ! -d /sys/firmware/efi ]; then
 fi
 
 if ! command -v git >/dev/null 2>&1; then
-    die "缺少 git，请先安装：sudo pacman -S git"
+    warn "未检测到 git。若你是用 ZIP 包解压得到的本目录，这没问题。"
 fi
 
 if ! command -v pacman >/dev/null 2>&1; then
@@ -80,8 +80,16 @@ info "3/6 备份将被覆盖的文件到 $BACKUP_DIR"
 MANIFEST="$(mktemp)"
 trap 'rm -f "$MANIFEST"' EXIT
 
-# 以 git 索引为唯一事实来源
-git -C "$REPO_DIR" ls-files dotfiles >"$MANIFEST" || die "git ls-files 失败"
+# 文件清单：优先用 git 索引（尊重 .gitignore，且只含已跟踪文件）；
+# 若目录来自 ZIP 下载而没有 .git，则回退到遍历 dotfiles/ 实际内容。
+if git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "$REPO_DIR" ls-files dotfiles >"$MANIFEST"
+    echo "  清单来源: git 索引 ($(wc -l <"$MANIFEST") 项)"
+else
+    (cd "$REPO_DIR" && find dotfiles -type f -o -type l) | sort >"$MANIFEST"
+    echo "  清单来源: 目录遍历（无 .git，ZIP 安装模式，$(wc -l <"$MANIFEST") 项）"
+fi
+[ -s "$MANIFEST" ] || die "文件清单为空，仓库内容可能损坏。"
 
 backup_count=0
 while IFS= read -r tracked; do
