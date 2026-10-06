@@ -2,6 +2,25 @@
 
 Niri + DankMaterialShell (DMS) 桌面配置，**自包含**，不依赖 `shorin-dms-niri-git`。
 
+支持 Arch 系、Debian 系、Fedora 系、openSUSE。
+
+## 各发行版的实际情况
+
+配置层是**完全可移植**的——所有 `dotfiles-shorin/` 与 `dotfiles-user/` 内的文件只用标准路径（`/usr/bin/env`、`/usr/share/sounds` 等），没有任何 Arch 专属引用，在任何发行版上都能部署。
+
+真正的差异在**装依赖**这一层。下表是实测结论：
+
+| 组件 | Arch | Debian 13 | Fedora |
+|---|---|---|---|
+| `dms` (DMS 本体) | 官方 extra 仓库 | OBS 官方仓库 | COPR `avengemedia/dms` |
+| `niri` | 官方仓库 | **无官方包，需编译** | `pgdev/niri` COPR |
+| `quickshell` | AUR | 由 DMS 仓库提供 | COPR 提供 |
+| `eza` | 官方仓库 | **仓库无此包**，需 cargo 或到包索引确认 | 官方仓库 |
+
+引用：[DMS 安装文档](https://danklinux.com/docs/1.4/dankmaterialshell/installation)、[Debian 上编译 niri](https://github.com/rufex/niri-on-debian)。
+
+因此在新机器上，第三方仓库需要**你手动添加**（`install.sh` 不会擅自改你的 apt/dnf/zypper 源，只打印确切命令）。加完仓库、`dms` 和 `niri` 装好后，`./install.sh` 即可铺全部配置。
+
 ## 这是什么
 
 原本这套桌面由 AUR 包 `shorin-dms-niri-git` 提供：它自带一套配置模板（`/usr/share/shorin-dms-niri/`），通过 `shorindms init` 铺到 `$HOME`。本仓库把那套模板 **vendoring** 进来，接管部署，从此不再需要那个包。
@@ -52,6 +71,31 @@ cd ~/dotfiles-niri
 ./install.sh --no-packages    # 不装软件，只铺配置
 ./install.sh --no-system      # 不动 locale / i2c 等系统设置
 ```
+
+脚本会自动识别发行版并选用对应的包管理器（pacman / apt / dnf / zypper）与包名。遇到异常系统或想强制指定：
+
+```bash
+DOTFILES_PKG_FAMILY=debian ./install.sh
+```
+
+### 非 Arch 系统的额外说明
+
+配置部署不需要任何 Arch 专属组件，但**登录器（greetd）配置不在本仓库内**，因为它在 `/etc/greetd/` 且仅 root 可读。新机器上需要自己配置登录器来拉起 niri 会话，例如：
+
+```toml
+# /etc/greetd/config.toml
+[default_session]
+command = "niri-session"
+user = "greeter"
+```
+
+另外 `install.sh` 的系统级设置已做跨发行版处理：
+
+| 项目 | Arch | Debian | Fedora |
+|---|---|---|---|
+| locale | `/etc/locale.gen` + `locale-gen` | 同左 | `localedef` |
+| 加 i2c 组 | `gpasswd -a` | `gpasswd -a` 或 `usermod -aG` | `usermod -aG` |
+| 电源管理 | 检测到 TLP 就不碰 `power-profiles-daemon` | 同左 | 同左 |
 
 ### 3. 首次登录后必做
 

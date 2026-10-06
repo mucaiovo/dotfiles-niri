@@ -37,6 +37,131 @@ warn() { printf '%s[!]%s %s\n' "$c_yel" "$c_rst" "$*"; }
 die()  { printf '%s[x]%s %s\n' "$c_red" "$c_rst" "$*" >&2; exit 1; }
 run()  { if [ "$DRY_RUN" -eq 1 ]; then printf '%s    [dry-run]%s %s\n' "$c_dim" "$c_rst" "$*"; else "$@"; fi; }
 
+# ---------------------------------------------------------------- 发行版检测
+DISTRO_ID=""; DISTRO_LIKE=""; DISTRO_NAME="未知"; PKG_FAMILY="unknown"
+if [ -r /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    DISTRO_ID="${ID:-}"; DISTRO_LIKE="${ID_LIKE:-}"; DISTRO_NAME="${PRETTY_NAME:-$ID}"
+fi
+case " $DISTRO_ID $DISTRO_LIKE " in
+    *" arch "*)   PKG_FAMILY="arch" ;;
+    *" debian "*|*" ubuntu "*) PKG_FAMILY="debian" ;;
+    *" fedora "*|*" rhel "*)   PKG_FAMILY="fedora" ;;
+    *" opensuse "*|*" suse "*) PKG_FAMILY="suse" ;;
+esac
+# 允许显式覆盖（异常系统 / 测试用）: DOTFILES_PKG_FAMILY=debian ./install.sh
+case "${DOTFILES_PKG_FAMILY:-}" in
+    arch|debian|fedora|suse)
+        PKG_FAMILY="$DOTFILES_PKG_FAMILY"
+        case "$DOTFILES_PKG_FAMILY" in
+            arch)   DISTRO_NAME="$DISTRO_NAME (按 Arch 处理)" ;;
+            debian) DISTRO_NAME="$DISTRO_NAME (按 Debian 处理)" ;;
+            fedora) DISTRO_NAME="$DISTRO_NAME (按 Fedora 处理)" ;;
+            suse)   DISTRO_NAME="$DISTRO_NAME (按 openSUSE 处理)" ;;
+        esac
+        ;;
+esac
+
+# 兜底：按可用命令判断
+if [ "$PKG_FAMILY" = "unknown" ]; then
+    if command -v pacman >/dev/null 2>&1; then PKG_FAMILY="arch"
+    elif command -v apt    >/dev/null 2>&1; then PKG_FAMILY="debian"
+    elif command -v dnf    >/dev/null 2>&1; then PKG_FAMILY="fedora"
+    elif command -v zypper >/dev/null 2>&1; then PKG_FAMILY="suse"
+    fi
+fi
+
+# 各发行版下的包名映射（Arch 名 → Debian/Fedora 名）
+#   __SKIP__  = 该发行版无对应包，不尝试安装
+#   __OBS__   = 由上一步提示的第三方仓库提供
+#   __CHECK__ = 包名不确定，安装后会报错并提示你手动确认
+debian_pkg() {
+    case "$1" in
+        dms-shell)                  echo "dms" ;;
+        quickshell-git)             echo "__OBS__" ;;
+        niri-sidebar-git)           echo "__SKIP__" ;;
+        niri)                       echo "__CHECK__" ;;   # Debian 13 无官方包，需编译
+        matugen)                    echo "matugen" ;;
+        adw-gtk-theme)              echo "adw-gtk3" ;;
+        breeze-cursors)             echo "breeze-cursor-theme" ;;
+        noto-fonts)                 echo "fonts-noto-core" ;;
+        noto-fonts-cjk)             echo "fonts-noto-cjk" ;;
+        noto-fonts-emoji)           echo "fonts-noto-color-emoji" ;;
+        polkit-gnome)               echo "policykit-1-gnome" ;;
+        satty)                      echo "__CHECK__" ;;
+        slurp)                      echo "slurp" ;;
+        grim)                       echo "grim" ;;
+        wf-recorder)                echo "wf-recorder" ;;
+        ttf-jetbrains-mono-nerd)    echo "fonts-jetbrains-mono" ;;
+        eza)                        echo "__CHECK__" ;;   # Debian 仓库无 eza
+        starship)                   echo "starship" ;;
+        zoxide)                     echo "zoxide" ;;
+        *)                          echo "$1" ;;
+    esac
+}
+fedora_pkg() {
+    case "$1" in
+        dms-shell)                  echo "dms" ;;
+        quickshell-git)             echo "quickshell" ;;   # COPR 提供
+        niri-sidebar-git)           echo "__SKIP__" ;;
+        niri)                       echo "niri" ;;         # pgdev/niri COPR
+        adw-gtk-theme)              echo "adw-gtk3-theme" ;;
+        breeze-cursors)             echo "breeze-cursor-theme" ;;
+        noto-fonts)                 echo "google-noto-sans-fonts" ;;
+        noto-fonts-cjk)             echo "google-noto-sans-cjk-fonts" ;;
+        noto-fonts-emoji)           echo "google-noto-emoji-fonts" ;;
+        polkit-gnome)               echo "polkit-gnome" ;;
+        satty)                      echo "satty" ;;
+        slurp)                      echo "slurp" ;;
+        grim)                       echo "grim" ;;
+        wf-recorder)                echo "wf-recorder" ;;
+        ttf-jetbrains-mono-nerd)    echo "jetbrains-mono-fonts-all" ;;
+        starship)                   echo "starship" ;;
+        zoxide)                     echo "zoxide" ;;
+        eza)                        echo "eza" ;;
+        *)                          echo "$1" ;;
+    esac
+}
+fedora_pkg() {
+    case "$1" in
+        dms-shell)                  echo "dms" ;;
+        quickshell-git)             echo "quickshell" ;;  # COPR 提供
+        niri-sidebar-git)           echo "__SKIP__" ;;
+        adw-gtk-theme)              echo "adw-gtk3-theme" ;;
+        ttf-jetbrains-mono-nerd)    echo "jetbrains-mono-fonts-all" ;;
+        polkit-gnome)               echo "polkit-gnome" ;;
+        xdg-desktop-portal-gnome)   echo "xdg-desktop-portal-gnome" ;;
+        *)                          echo "$1" ;;
+    esac
+}
+
+suse_pkg() {
+    case "$1" in
+        dms-shell)                  echo "dms" ;;
+        quickshell-git)             echo "__OBS__" ;;
+        niri-sidebar-git)           echo "__SKIP__" ;;
+        niri)                       echo "niri" ;;
+        adw-gtk-theme)              echo "adw-gtk3-theme" ;;
+        noto-fonts)                 echo "noto-sans-fonts" ;;
+        noto-fonts-cjk)             echo "noto-sans-cjk-fonts" ;;
+        noto-fonts-emoji)           echo "noto-coloremoji-fonts" ;;
+        ttf-jetbrains-mono-nerd)    echo "jetbrains-mono-fonts" ;;
+        polkit-gnome)               echo "polkit-gnome" ;;
+        *)                          echo "$1" ;;
+    esac
+}
+
+pkg_installed() {
+    case "$PKG_FAMILY" in
+        arch)   pacman -Qq "$1" >/dev/null 2>&1 ;;
+        debian) dpkg -s "$1"   >/dev/null 2>&1 ;;
+        fedora) rpm -q "$1"    >/dev/null 2>&1 ;;
+        suse)   rpm -q "$1"    >/dev/null 2>&1 ;;
+        *)      return 1 ;;
+    esac
+}
+
 [ "$(id -u)" -eq 0 ] && die "请不要用 root 运行。"
 [ -d "$BASE_DIR" ] || die "缺少底座目录 $BASE_DIR"
 [ -d "$USER_DIR" ] || die "缺少用户层目录 $USER_DIR"
@@ -58,30 +183,91 @@ CORE_PACKAGES=(
 
 # ---------------------------------------------------------------- 1. 环境
 info "1/6 检查环境"
-command -v pacman >/dev/null 2>&1 || warn "未检测到 pacman，本脚本针对 Arch 系发行版。"
+echo "  发行版: $DISTRO_NAME"
+case "$PKG_FAMILY" in
+    arch)   echo "  包管理器: pacman" ;;
+    debian) echo "  包管理器: apt" ;;
+    fedora) echo "  包管理器: dnf" ;;
+    suse)   echo "  包管理器: zypper" ;;
+    *)      warn "无法识别的发行版，软件安装需手动完成（配置部署不受影响）" ;;
+esac
 
 AUR=""
-if command -v paru >/dev/null 2>&1; then AUR=paru
-elif command -v yay >/dev/null 2>&1; then AUR=yay
+if [ "$PKG_FAMILY" = "arch" ]; then
+    if command -v paru >/dev/null 2>&1; then AUR=paru
+    elif command -v yay >/dev/null 2>&1; then AUR=yay
+    fi
+    [ -n "$AUR" ] && echo "  AUR 助手: $AUR" || warn "未找到 paru/yay，AUR 包需手动安装。"
 fi
-[ -n "$AUR" ] && echo "  AUR 助手: $AUR" || warn "未找到 paru/yay，AUR 包需你手动安装。"
 
 # ---------------------------------------------------------------- 2. 装包
 if [ "$DO_PACKAGES" -eq 1 ]; then
     info "2/6 安装软件"
-    if command -v pacman >/dev/null 2>&1; then
-        missing=()
-        for p in "${CORE_PACKAGES[@]}"; do
-            pacman -Qq "$p" >/dev/null 2>&1 || missing+=("$p")
-        done
-        if [ ${#missing[@]} -eq 0 ]; then
-            echo "  依赖已齐全"
-        else
-            echo "  缺少 ${#missing[@]} 个包: ${missing[*]}"
-            run sudo pacman -S --needed --noconfirm "${missing[@]}" || warn "部分包安装失败，请手动检查。"
-        fi
+
+    # 把 Arch 包名映射成本发行版的包名
+    map_pkg() {
+        case "$PKG_FAMILY" in
+            arch)   echo "$1" ;;
+            debian) debian_pkg "$1" ;;
+            fedora) fedora_pkg "$1" ;;
+            suse)   suse_pkg "$1" ;;
+            *)      echo "$1" ;;
+        esac
+    }
+
+    missing=(); skipped=(); unsure=()
+    for p in "${CORE_PACKAGES[@]}"; do
+        m="$(map_pkg "$p")"
+        if [ "$m" = "__SKIP__" ]; then skipped+=("$p"); continue; fi
+        [ "$m" = "__OBS__" ] && { skipped+=("$p (需 DMS 仓库)"); continue; }
+        if [ "$m" = "__CHECK__" ]; then unsure+=("$p"); continue; fi
+        pkg_installed "$m" || missing+=("$m")
+    done
+
+    if [ "$PKG_FAMILY" = "unknown" ]; then
+        warn "未知发行版，跳过自动装包。请手动安装以下依赖:"
+        printf '    %s\n' "${CORE_PACKAGES[@]}"
+    elif [ ${#missing[@]} -eq 0 ]; then
+        echo "  依赖已齐全"
     else
-        warn "跳过（非 pacman 系统），请自行安装清单中的包。"
+        echo "  缺少 ${#missing[@]} 个包"
+        case "$PKG_FAMILY" in
+            arch)   run sudo pacman -S --needed --noconfirm "${missing[@]}" || warn "部分包安装失败，请手动检查。" ;;
+            debian) run sudo apt install -y "${missing[@]}" || warn "部分包安装失败，请手动检查。" ;;
+            fedora) run sudo dnf install -y "${missing[@]}" || warn "部分包安装失败，请手动检查。" ;;
+            suse)   run sudo zypper install -y "${missing[@]}" || warn "部分包安装失败，请手动检查。" ;;
+        esac
+    fi
+
+    [ ${#skipped[@]} -gt 0 ] && { warn "以下包需手动处理:"; printf '    %s\n' "${skipped[@]}"; }
+    [ ${#unsure[@]} -gt 0 ] && {
+        warn "以下包在本发行版无稳定对应包名，未自动安装:"
+        printf '    %s\n' "${unsure[@]}"
+        echo "    请到本发行版的包索引确认后手动安装（配置部署不受影响）。"
+    }
+
+    # 非 Arch 系统需要先加第三方仓库才能拿到 DMS / niri
+    if [ "$PKG_FAMILY" = "debian" ]; then
+        echo
+        echo "  Debian 需先启用 DMS 官方仓库（本脚本不代改 apt 源，请手动执行）:"
+        echo "    curl -fsSL https://download.opensuse.org/repositories/home:AvengeMedia:danklinux/Debian_13/Release.key | \\"
+        echo "      sudo gpg --dearmor -o /etc/apt/keyrings/danklinux.gpg"
+        echo "    echo \"deb [signed-by=/etc/apt/keyrings/danklinux.gpg] https://download.opensuse.org/repositories/home:/AvengeMedia:/danklinux/Debian_13/ /\" | \\"
+        echo "      sudo tee /etc/apt/sources.list.d/danklinux.list"
+        echo "    sudo apt update && sudo apt install dms"
+        echo "    niri 需自行编译: https://github.com/rufex/niri-on-debian"
+    elif [ "$PKG_FAMILY" = "suse" ]; then
+        echo
+        echo "  openSUSE 需先加 DMS 官方仓库（本脚本不代改 zypper 源，请手动执行）:"
+        echo "    sudo zypper addrepo https://download.opensuse.org/repositories/home:AvengeMedia:danklinux/openSUSE_Tumbleweed/home:AvengeMedia:danklinux.repo"
+        echo "    sudo zypper addrepo https://download.opensuse.org/repositories/home:/AvengeMedia:/dms/openSUSE_Tumbleweed/home:AvengeMedia:dms.repo"
+        echo "    sudo zypper refresh && sudo zypper install dms niri"
+    elif [ "$PKG_FAMILY" = "fedora" ]; then
+        echo
+        echo "  Fedora 需先启用 COPR 仓库（本脚本不代改 dnf 源，请手动执行）:"
+        echo "    sudo dnf copr enable avengemedia/dms"
+        echo "    sudo dnf install dms"
+        echo "    niri 可用 COPR: sudo dnf copr enable pgdev/niri && sudo dnf install niri"
     fi
 else
     info "2/6 跳过软件安装 (--no-packages)"
@@ -89,7 +275,9 @@ fi
 
 # ---------------------------------------------------------------- 3. 原始包处置
 info "3/6 检查 shorin-dms-niri-git"
-if pacman -Qq shorin-dms-niri-git >/dev/null 2>&1; then
+if [ "$PKG_FAMILY" != "arch" ]; then
+    echo "  非 Arch 系统，跳过（该包是 AUR 专属，与自包含部署无关）"
+elif pkg_installed shorin-dms-niri-git; then
     warn "检测到 shorin-dms-niri-git。它的配置从此不再生效（本仓库已接管）。"
     echo "  以下 shorin 专属工具不依赖它，建议保留:"
     echo "    shorin-contrib-git          ~/.local/bin 里的 sysup/clean/mirror-update 等"
@@ -107,21 +295,58 @@ if [ "$DO_SYSTEM" -eq 1 ]; then
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "    [dry-run] locale.gen / i2c 组 / i2c-dev 模块"
     else
-        # locale
+        # locale —— 各发行版机制不同
         need_gen=0
-        locale -a 2>/dev/null | grep -qi "en_US.utf8" || { sudo sed -i 's/^#\s*en_US\.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen; need_gen=1; }
-        locale -a 2>/dev/null | grep -qi "zh_CN.utf8" || { sudo sed -i 's/^#\s*zh_CN\.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen; need_gen=1; }
-        [ "$need_gen" -eq 1 ] && { sudo locale-gen >/dev/null 2>&1 && echo "  已生成 locales"; } || echo "  locales 已就绪"
-
-        # i2c（外接显示器亮度控制需要）
-        if ! id -nG "$USER" | tr ' ' '\n' | grep -qx i2c; then
-            sudo gpasswd -a "$USER" i2c >/dev/null 2>&1 && echo "  已将 $USER 加入 i2c 组（需重新登录生效）"
+        if [ -f /etc/locale.gen ]; then
+            # Arch / Debian 用 locale.gen
+            locale -a 2>/dev/null | grep -qi "en_US.utf8" || { sudo sed -i 's/^#\s*en_US\.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen; need_gen=1; }
+            locale -a 2>/dev/null | grep -qi "zh_CN.utf8" || { sudo sed -i 's/^#\s*zh_CN\.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen; need_gen=1; }
+            if [ "$need_gen" -eq 1 ]; then
+                if command -v locale-gen >/dev/null 2>&1; then
+                    sudo locale-gen >/dev/null 2>&1 && echo "  已生成 locales (locale-gen)"
+                elif command -v localedef >/dev/null 2>&1; then
+                    sudo localedef -i en_US -f UTF-8 en_US.UTF-8 >/dev/null 2>&1
+                    sudo localedef -i zh_CN -f UTF-8 zh_CN.UTF-8 >/dev/null 2>&1
+                    echo "  已生成 locales (localedef)"
+                else
+                    warn "  找不到 locale-gen / localedef，请手动生成 locales"
+                fi
+            else
+                echo "  locales 已就绪"
+            fi
         else
-            echo "  已在 i2c 组"
+            # Fedora 无 /etc/locale.gen
+            if command -v localedef >/dev/null 2>&1; then
+                locale -a 2>/dev/null | grep -qi "zh_CN.utf8" || {
+                    sudo localedef -i zh_CN -f UTF-8 zh_CN.UTF-8 >/dev/null 2>&1 && echo "  已生成 zh_CN.UTF-8"
+                }
+                locale -a 2>/dev/null | grep -qi "zh_CN.utf8" && echo "  locales 已就绪"
+            else
+                warn "  未找到 localedef，请手动生成 zh_CN.UTF-8"
+            fi
         fi
-        if ! grep -q "i2c-dev" /etc/modules-load.d/i2c-dev.conf 2>/dev/null; then
-            echo "i2c-dev" | sudo tee /etc/modules-load.d/i2c-dev.conf >/dev/null
-            echo "  已添加 i2c-dev 模块"
+
+        # i2c 组（外接显示器亮度控制需要）
+        if id -nG "$USER" 2>/dev/null | tr ' ' '\n' | grep -qx i2c; then
+            echo "  已在 i2c 组"
+        else
+            if command -v gpasswd >/dev/null 2>&1; then
+                sudo gpasswd -a "$USER" i2c >/dev/null 2>&1 && echo "  已将 $USER 加入 i2c 组（需重新登录生效）"
+            elif command -v usermod >/dev/null 2>&1; then
+                sudo usermod -aG i2c "$USER" >/dev/null 2>&1 && echo "  已将 $USER 加入 i2c 组（需重新登录生效）"
+            else
+                warn "  无法自动加入 i2c 组，请手动执行: sudo usermod -aG i2c $USER"
+            fi
+        fi
+
+        # i2c-dev 模块开机加载
+        if grep -q "i2c-dev" /etc/modules-load.d/i2c-dev.conf 2>/dev/null; then
+            echo "  i2c-dev 模块已配置"
+        else
+            sudo mkdir -p /etc/modules-load.d 2>/dev/null || true
+            echo "i2c-dev" | sudo tee /etc/modules-load.d/i2c-dev.conf >/dev/null 2>&1 \
+                && echo "  已添加 i2c-dev 模块" \
+                || warn "  写入 modules-load.d 失败（Fedora 若无此服务，可改用 /etc/modprobe.d）"
         fi
 
         # 电源管理：TLP 与 power-profiles-daemon 互斥，绝不盲目开启
