@@ -1,0 +1,44 @@
+# ---- 绝不纳入版本控制 ----
+# 备份/生成物
+*~
+*.bak
+*.bak.*
+*.backup*
+dotfiles/.config/niri/*.backup*
+dotfiles/.config/niri/config.kdl.bak-*
+dotfiles/.config/niri/nvim.old.*
+
+# 密钥与凭据
+**/id_rsa*
+**/id_ed25519*
+**/*.pem
+**/*.key
+**/known_hosts
+**/.netrc
+**/.npmrc
+**/.git-credentials
+**/.ssh/**
+**/.gnupg/**
+**/.pki/**
+
+# 含 token 的个人脚本（本地排除，不要提交）
+dotfiles/.local/bin/bot
+dotfiles/.local/bin/botrm
+dotfiles/.local/bin/botw
+
+# 二进制与体积大的资产（按需另存，不要塞进 git）
+dotfiles/.local/bin/uv
+dotfiles/.local/bin/uvx
+dotfiles/.local/bin/btop
+dotfiles/Pictures/**
+*.pkg.tar.zst
+*.AppImage
+
+# 运行时/缓存
+**/.cache/**
+**/.dsh/**
+**/.dsh-tui/**
+**/node_modules/**
+**/__pycache__/**
+*.pyc
+*.log

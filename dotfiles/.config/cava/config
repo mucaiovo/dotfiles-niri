@@ -1,0 +1,16 @@
+[general]
+bar_width = 2
+bar_spacing = 1
+
+[output]
+method = noncurses
+
+[color]
+gradient = 1
+
+gradient_count = 2
+
+gradient_color_1 = '#b5c4ff'
+
+gradient_color_2 = '#ffffff'
+
