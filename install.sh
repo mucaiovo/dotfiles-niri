@@ -79,6 +79,7 @@ fi
 debian_pkg() {
     case "$1" in
         dms-shell)                  echo "dms" ;;
+        dms-greeter)                echo "dms-greeter" ;;
         quickshell-git)             echo "__OBS__" ;;
         niri-sidebar-git)           echo "__SKIP__" ;;
         niri)                       echo "__CHECK__" ;;   # Debian 13 无官方包，需编译
@@ -103,6 +104,7 @@ debian_pkg() {
 fedora_pkg() {
     case "$1" in
         dms-shell)                  echo "dms" ;;
+        dms-greeter)                echo "dms-greeter" ;;
         quickshell-git)             echo "quickshell" ;;   # COPR 提供
         niri-sidebar-git)           echo "__SKIP__" ;;
         niri)                       echo "niri" ;;         # pgdev/niri COPR
@@ -120,17 +122,6 @@ fedora_pkg() {
         starship)                   echo "starship" ;;
         zoxide)                     echo "zoxide" ;;
         eza)                        echo "eza" ;;
-        *)                          echo "$1" ;;
-    esac
-}
-fedora_pkg() {
-    case "$1" in
-        dms-shell)                  echo "dms" ;;
-        quickshell-git)             echo "quickshell" ;;  # COPR 提供
-        niri-sidebar-git)           echo "__SKIP__" ;;
-        adw-gtk-theme)              echo "adw-gtk3-theme" ;;
-        ttf-jetbrains-mono-nerd)    echo "jetbrains-mono-fonts-all" ;;
-        polkit-gnome)               echo "polkit-gnome" ;;
         xdg-desktop-portal-gnome)   echo "xdg-desktop-portal-gnome" ;;
         *)                          echo "$1" ;;
     esac
@@ -142,6 +133,7 @@ suse_pkg() {
         quickshell-git)             echo "__OBS__" ;;
         niri-sidebar-git)           echo "__SKIP__" ;;
         niri)                       echo "niri" ;;
+        dms-greeter)                echo "dms-greeter" ;;
         adw-gtk-theme)              echo "adw-gtk3-theme" ;;
         noto-fonts)                 echo "noto-sans-fonts" ;;
         noto-fonts-cjk)             echo "noto-sans-cjk-fonts" ;;
@@ -179,6 +171,8 @@ CORE_PACKAGES=(
     fish starship zoxide eza bat jq
     ttf-jetbrains-mono-nerd
     gnome-keyring polkit-gnome
+    # DMS 登录器（Arch 上为 AUR: greetd-dms-greeter-bin）
+    greetd dms-greeter
 )
 
 # ---------------------------------------------------------------- 1. 环境
@@ -443,6 +437,45 @@ PY
     fi
 fi
 
+# DMS 登录器（dms-greeter 自带 CLI，不手写 /etc/greetd 配置）
+echo
+echo "  --- DMS 登录器 ---"
+if command -v dms-greeter >/dev/null 2>&1; then
+    # 判定以 greetd 运行日志里的实际启动命令为准 —— 这是本机最权威、
+    # 且非 root 可读的证据。dms-greeter status 依据它自己写的标记文件，
+    # 当 /etc/greetd/config.toml 是手工或第三方脚本写的时候会误报 not found，
+    # 而登录屏其实是正常工作的。
+    if journalctl -u greetd -b --no-pager 2>/dev/null | grep -q "command:.*dms-greeter"; then
+        greeter_state="configured"
+    elif journalctl -u greetd --no-pager 2>/dev/null | grep -q "command:.*dms-greeter"; then
+        greeter_state="configured"
+    else
+        greeter_state="unknown"
+    fi
+
+    case "$greeter_state" in
+        configured)
+            echo "  ✓ greetd 已指向 dms-greeter（依据运行日志）"
+            ;;
+        *)
+            echo "  ? 无法从日志确认登录器状态，请自行执行 dms-greeter status 查看"
+            echo "    若确实未启用: sudo dms-greeter enable"
+            ;;
+    esac
+
+    # status 的同步健康状况仍值得看，但它的 "config not found" 在上述
+    # 情况下是误报，不据此给建议
+    if sync_out="$(dms-greeter status 2>/dev/null)"; then
+        printf '%s' "$sync_out" | grep -q "Wallpaper Override.*Override file not present" && \
+            echo "    ℹ 登录屏壁纸走桌面壁纸回退（可在 DMS 设置 → Greeter 里单独指定）"
+    fi
+
+    echo "    同步桌面主题到登录屏: dms-greeter sync"
+    echo "    登录器外观在 DMS 设置 → Greeter 里调整（dms-greeter 只读同步结果）"
+else
+    warn "  未安装 dms-greeter，跳过（壁纸与桌面主题不受影响）"
+fi
+
 cat <<EOF
 
 $(printf '%s' "$c_grn")部署完成。$(printf '%s' "$c_rst")
@@ -452,6 +485,8 @@ $(printf '%s' "$c_grn")部署完成。$(printf '%s' "$c_rst")
   2. DMS 设置 → 个性化 → 壁纸，选一张壁纸
   3. DMS 设置 → 主题与配色 → 选 "auto" 并挑配色
      这步会生成 ~/.config/niri/dms/colors.kdl 与 wpblur.kdl
+  4. 若用 DMS 登录器: 装完壁纸后执行 dms-greeter sync，把主题同步到登录屏
+     登录器自身的外观在 DMS 设置 → Greeter 里调整
 
 可选:
   * Firefox 配色: 扩展页装 pywalfox → Fetch

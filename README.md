@@ -80,14 +80,7 @@ DOTFILES_PKG_FAMILY=debian ./install.sh
 
 ### 非 Arch 系统的额外说明
 
-配置部署不需要任何 Arch 专属组件，但**登录器（greetd）配置不在本仓库内**，因为它在 `/etc/greetd/` 且仅 root 可读。新机器上需要自己配置登录器来拉起 niri 会话，例如：
-
-```toml
-# /etc/greetd/config.toml
-[default_session]
-command = "niri-session"
-user = "greeter"
-```
+配置部署不需要任何 Arch 专属组件，但登录器需要单独处理，见下一节。
 
 另外 `install.sh` 的系统级设置已做跨发行版处理：
 
@@ -96,6 +89,41 @@ user = "greeter"
 | locale | `/etc/locale.gen` + `locale-gen` | 同左 | `localedef` |
 | 加 i2c 组 | `gpasswd -a` | `gpasswd -a` 或 `usermod -aG` | `usermod -aG` |
 | 电源管理 | 检测到 TLP 就不碰 `power-profiles-daemon` | 同左 | 同左 |
+
+## 登录器（DMS Greeter）
+
+桌面用 DMS 登录器，它在各发行版都有官方包，**不需要手写 `/etc/greetd/` 配置**——交给 `dms-greeter` 自带的 CLI 即可：
+
+```bash
+# 装包
+paru -S greetd-dms-greeter-bin          # Arch (AUR)
+sudo apt install dms-greeter            # Debian 13 (OBS 仓库)
+sudo dnf install dms-greeter            # Fedora (COPR avengemedia/danklinux)
+sudo zypper install dms-greeter         # openSUSE
+
+# 启用并同步主题
+sudo dms-greeter enable                 # 让 greetd 指向 dms-greeter
+dms-greeter sync                        # 把 DMS 主题/壁纸/设置同步到登录屏
+dms-greeter status                      # 查看状态
+```
+
+顺序很重要：**先设好壁纸再 `sync`**，否则登录屏拿不到配色和壁纸。
+
+### 为什么登录器配置不在仓库里
+
+`/etc/greetd/config.toml` 权限是 `-rw-------` 仅 root 可读，dotfiles 仓库天然收不进去。这也**不是缺憾**：那份配置由 `dms-greeter enable` 生成，登录屏的外观则由 `dms-greeter sync` 从你的 `~/.config/DankMaterialShell/` 同步而来——两者都是可再生的。登录器自身的选项（壁纸、认证方式等）在 **DMS 设置 → Greeter** 里调整。
+
+### 一个已知的误报
+
+`dms-greeter status` 会报 `✗ Greeter config not found`，即使登录屏工作正常。它会去找自己写的标记，而当 `/etc/greetd/config.toml` 由手工或第三方脚本（如 shorin）写入时就会误判。
+
+**判断真实状态的可靠办法**是看 greetd 的运行日志里实际执行的命令：
+
+```bash
+journalctl -u greetd -b --no-pager | grep "command:.*dms-greeter"
+```
+
+有输出即说明登录器已生效。`install.sh` 就是用这个方法判断的。
 
 ### 3. 首次登录后必做
 
