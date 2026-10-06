@@ -27,6 +27,22 @@ cd ~/dotfiles-niri
 2. DMS 设置 → 个性化 → 壁纸，选一张壁纸
 3. DMS 设置 → 主题与配色 → 选 `auto` 并挑配色，这一步会重新生成 `dms/colors.kdl` 和 `dms/wpblur.kdl`
 
+## 日常维护
+
+改完配置后把改动同步回仓库：
+
+```bash
+cd ~/dotfiles-niri
+./sync.sh            # 只看差异，不写入
+./sync.sh --apply    # 实际同步
+git diff             # 审阅
+git add -A && git commit -m "更新配置" && git push
+```
+
+脚本刻意使用**拷贝**而非软链。日常用的机器上**不要**把 `~/.config` 建成软链指向仓库：`shorindms update` 落盘时可能打断软链，反而把你的真实配置变成断链。软链只在 `install.sh` 还原新机器时使用。
+
+`DankMaterialShell/settings.json` 里的背光设备名是本机专属值，`sync.sh` 同步时会自动清空它，避免把本机设备名固化进仓库。
+
 ## 为什么只有这些文件
 
 `shorin-dms-niri-git` 自带整套 dotfiles。我用逐文件 diff 找出了真正被我改动的部分：
