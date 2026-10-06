@@ -171,7 +171,7 @@ CORE_PACKAGES=(
     fish starship zoxide eza bat jq
     ttf-jetbrains-mono-nerd
     gnome-keyring polkit-gnome
-    # DMS 登录器（Arch 上为 AUR: greetd-dms-greeter-bin）
+    # DMS 登录器（Arch 装 greetd-dms-greeter-bin，其余发行版装 dms-greeter）
     greetd dms-greeter
 )
 
